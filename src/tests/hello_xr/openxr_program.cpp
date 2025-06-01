@@ -18,6 +18,11 @@
 #include <networktables/NetworkTableInstance.h>
 #include <networktables/DoubleTopic.h>
 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
+
 namespace {
 
 #if !defined(XR_USE_PLATFORM_WIN32)
@@ -91,6 +96,40 @@ inline XrReferenceSpaceCreateInfo GetXrReferenceSpaceCreateInfo(const std::strin
     return referenceSpaceCreateInfo;
 }
 
+void TryConnection() {
+    return;
+    const char* hostname = "192.168.0.242";
+    const char* port = "5810";
+
+    struct addrinfo hints{}, *res;
+    hints.ai_family = AF_INET;      // IPv4
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    int status = getaddrinfo(hostname, port, &hints, &res);
+    if (status != 0) {
+        Log::Write(Log::Level::Error, Fmt("NTInstance: getaddrinfo error: %s", gai_strerror(status)));
+        return;
+    }
+
+    int sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sockfd == -1) {
+        Log::Write(Log::Level::Error, "NTInstance: Socket creation failed!");
+        freeaddrinfo(res);
+        return;
+    }
+
+    if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
+        Log::Write(Log::Level::Error, "NTInstance: Connection failed!");
+        close(sockfd);
+        freeaddrinfo(res);
+        return;
+    }
+
+    Log::Write(Log::Level::Info, Fmt("NTInstance: Connected successfully to %s on port %d", hostname, port));
+    close(sockfd);
+    freeaddrinfo(res);
+}
+
 struct OpenXrProgram : IOpenXrProgram {
     OpenXrProgram(const std::shared_ptr<Options>& options, const std::shared_ptr<IPlatformPlugin>& platformPlugin,
                   const std::shared_ptr<IGraphicsPlugin>& graphicsPlugin)
@@ -99,12 +138,14 @@ struct OpenXrProgram : IOpenXrProgram {
           m_graphicsPlugin(graphicsPlugin),
           m_acceptableBlendModes{XR_ENVIRONMENT_BLEND_MODE_OPAQUE, XR_ENVIRONMENT_BLEND_MODE_ADDITIVE,
                                  XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {
+
+        TryConnection();
         
         Log::Write(Log::Level::Warning, "NTInstance: Initializing network table instance");
         
         // Get the NetworkTables instance
         networkTableInstance = nt::NetworkTableInstance::GetDefault();
-        networkTableInstance.AddLogger(0, UINT_MAX, [](auto& event) {
+        networkTableInstance.AddLogger(7, UINT_MAX, [](auto& event) {
             if (auto msg = event.GetLogMessage()) {
                 Log::Write(Log::Level::Warning, Fmt("NTInstance: %d: %s", msg->level, msg->message.c_str()));
             }
@@ -939,6 +980,12 @@ struct OpenXrProgram : IOpenXrProgram {
 
         if (networkTableInstance.IsConnected()) {
             myDoublePublisher.Set(m_views[0].pose.position.x);
+        }
+        
+        static uint32_t counter = 0;
+        if (++counter >= 5*72) {
+            counter = 0;
+            TryConnection();
         }
         
         // For each locatable space that we want to visualize, render a 25cm cube.

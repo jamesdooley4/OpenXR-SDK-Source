@@ -33,6 +33,9 @@
   <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
   <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
 
+  <!-- Enable access to the local network for network tables -->
+  <uses-permission android:name="android.permission.INTERNET"/>
+
   <queries>
     <!-- to talk to the broker -->
     <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
