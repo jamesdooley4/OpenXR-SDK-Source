@@ -117,6 +117,8 @@ target_include_directories(
         "${PROJECT_SOURCE_DIR}/external/include"
         # For including compiled shaders
         "${CMAKE_CURRENT_BINARY_DIR}"
+        # GLM
+        "${PROJECT_SOURCE_DIR}/src/tests/hello_xr/externals"
 )
 
 target_link_libraries(hello_xr PRIVATE OpenXR::openxr_loader)
