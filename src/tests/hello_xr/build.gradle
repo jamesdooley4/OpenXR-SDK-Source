@@ -39,6 +39,7 @@ android {
                         '-DBUILD_CONFORMANCE_TESTS=OFF',
                         '-DBUILD_ALL_EXTENSIONS=ON'
                 targets "openxr_loader", "hello_xr"
+                abiFilters "arm64-v8a"
             }
         }
     }

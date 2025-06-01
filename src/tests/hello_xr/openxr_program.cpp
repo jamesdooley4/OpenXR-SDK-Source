@@ -15,6 +15,9 @@
 #include <cmath>
 #include <set>
 
+#include <networktables/NetworkTableInstance.h>
+#include <networktables/DoubleTopic.h>
+
 namespace {
 
 #if !defined(XR_USE_PLATFORM_WIN32)
@@ -95,7 +98,26 @@ struct OpenXrProgram : IOpenXrProgram {
           m_platformPlugin(platformPlugin),
           m_graphicsPlugin(graphicsPlugin),
           m_acceptableBlendModes{XR_ENVIRONMENT_BLEND_MODE_OPAQUE, XR_ENVIRONMENT_BLEND_MODE_ADDITIVE,
-                                 XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {}
+                                 XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {
+        
+        Log::Write(Log::Level::Warning, "NTInstance: Initializing network table instance");
+        
+        // Get the NetworkTables instance
+        networkTableInstance = nt::NetworkTableInstance::GetDefault();
+        networkTableInstance.AddLogger(0, UINT_MAX, [](auto& event) {
+            if (auto msg = event.GetLogMessage()) {
+                Log::Write(Log::Level::Warning, Fmt("NTInstance: %d: %s", msg->level, msg->message.c_str()));
+            }
+        });
+        networkTableInstance.SetServer("192.168.0.242");
+        networkTableInstance.StartClient4("Quest3S");
+
+        // Create a DoubleTopic
+        nt::DoubleTopic myDoubleTopic = networkTableInstance.GetDoubleTopic("myDoublePos");
+
+        // Create a DoublePublisher
+        myDoublePublisher = myDoubleTopic.Publish();
+    }
 
     ~OpenXrProgram() override {
         if (m_input.actionSet != XR_NULL_HANDLE) {
@@ -915,6 +937,10 @@ struct OpenXrProgram : IOpenXrProgram {
 
         projectionLayerViews.resize(viewCountOutput);
 
+        if (networkTableInstance.IsConnected()) {
+            myDoublePublisher.Set(m_views[0].pose.position.x);
+        }
+        
         // For each locatable space that we want to visualize, render a 25cm cube.
         std::vector<Cube> cubes;
 
@@ -1018,6 +1044,10 @@ struct OpenXrProgram : IOpenXrProgram {
     InputState m_input;
 
     const std::set<XrEnvironmentBlendMode> m_acceptableBlendModes;
+
+    // Network table items
+    nt::NetworkTableInstance networkTableInstance;
+    nt::DoublePublisher myDoublePublisher;
 };
 }  // namespace
 
