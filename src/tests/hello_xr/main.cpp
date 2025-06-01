@@ -254,7 +254,7 @@ void android_main(struct android_app* app) {
                 // If the timeout is negative, waits indefinitely until an event appears.
                 const int timeoutMilliseconds =
                     (!appState.Resumed && !program->IsSessionRunning() && app->destroyRequested == 0) ? -1 : 0;
-                if (ALooper_pollAll(timeoutMilliseconds, nullptr, &events, (void**)&source) < 0) {
+                if (ALooper_pollOnce(timeoutMilliseconds, nullptr, &events, (void**)&source) < 0) {
                     break;
                 }
 

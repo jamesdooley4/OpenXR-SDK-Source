@@ -19,3 +19,4 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
+include ':wpilibforquest'
