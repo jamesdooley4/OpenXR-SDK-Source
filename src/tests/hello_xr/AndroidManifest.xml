@@ -36,6 +36,10 @@
   <!-- Enable access to the local network for network tables -->
   <uses-permission android:name="android.permission.INTERNET"/>
 
+  <!-- Enable access to the passthrough camera feed for AprilTag scanning -->
+  <uses-permission android:name="horizonos.permission.HEADSET_CAMERA"/>
+  <uses-feature android:name="android.hardware.camera2.any" android:required="true"/>
+
   <queries>
     <!-- to talk to the broker -->
     <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />

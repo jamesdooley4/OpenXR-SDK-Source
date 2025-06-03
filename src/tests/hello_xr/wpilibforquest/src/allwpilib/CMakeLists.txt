@@ -66,7 +66,7 @@ cmake_dependent_option(
 option(WITH_CSCORE "Build cscore (needs OpenCV)" OFF)
 option(WITH_NTCORE "Build ntcore" ON)
 option(WITH_WPICAL "Build wpical" OFF)
-option(WITH_WPIMATH "Build wpimath" OFF)
+option(WITH_WPIMATH "Build wpimath" ON)
 cmake_dependent_option(
     WITH_WPIUNITS
     "Build wpiunits"
@@ -80,6 +80,7 @@ option(WITH_TESTS "Build unit tests (requires internet connection)" OFF)
 option(WITH_GUI "Build GUI items" OFF)
 option(WITH_SIMULATION_MODULES "Build simulation modules" OFF)
 option(WITH_PROTOBUF "Build protobuf support" OFF)
+option(WITH_APRILTAG "AprilTag support" ON)
 
 # Options for using a package manager (e.g., vcpkg) for certain dependencies.
 option(USE_SYSTEM_FMTLIB "Use system fmtlib" OFF)
@@ -346,6 +347,9 @@ if(WITH_WPILIB)
         add_subdirectory(wpilibcExamples)
     endif()
     add_subdirectory(developerRobot)
+elseif(WITH_APRILTAG)
+    set(APRILTAG_DEP_REPLACE "find_dependency(apriltag)")
+    add_subdirectory(apriltag)
 endif()
 
 if(WITH_SIMULATION_MODULES)

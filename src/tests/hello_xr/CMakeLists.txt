@@ -123,7 +123,7 @@ target_include_directories(
 
 target_link_libraries(hello_xr PRIVATE OpenXR::openxr_loader)
 
-target_link_libraries(hello_xr PRIVATE ntcore)
+target_link_libraries(hello_xr PRIVATE ntcore apriltag)
 
 if(GLSLANG_VALIDATOR AND NOT GLSLC_COMMAND)
     target_compile_definitions(hello_xr PRIVATE USE_GLSLANGVALIDATOR)

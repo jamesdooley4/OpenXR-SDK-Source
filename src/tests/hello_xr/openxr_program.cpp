@@ -25,6 +25,9 @@
 #include <netdb.h>
 #include <unistd.h>
 
+#include <camera/NdkCameraManager.h>
+#include <frc/apriltag/AprilTagDetector.h>
+
 // It's good practice to define this before including GLM headers
 // if you want GLM to use a right-handed system by default and
 // potentially match depth conventions (though for quaternions to Euler,
@@ -163,7 +166,7 @@ struct EulerAngles {
     float yaw;   // Rotation around Y-axis (or up/down axis)
 
     // Optional: Constructor for convenience
-    EulerAngles(float y, float p, float r) : yaw(y), pitch(p), roll(r) {}
+    EulerAngles(float y, float p, float r) : roll(r), pitch(p), yaw(y) {}
 };
 
 EulerAngles convertXrQuaternionToEulerAngles(const XrQuaternionf &xrOrientation) {
@@ -218,6 +221,9 @@ struct OpenXrProgram : IOpenXrProgram {
         positionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::POSITION).Publish();
         quaternionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::QUATERNION).Publish();
         eulerAnglesPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::EULER_ANGLES).Publish();
+
+        // Try AprilTag detection
+        DetectAprilTag();
     }
 
     ~OpenXrProgram() override {
@@ -1131,6 +1137,15 @@ struct OpenXrProgram : IOpenXrProgram {
         layer.viewCount = (uint32_t)projectionLayerViews.size();
         layer.views = projectionLayerViews.data();
         return true;
+    }
+    
+    void DetectAprilTag() {
+        frc::AprilTagDetector detector;
+        uint8_t image[100*100] = {0};
+        auto results = detector.Detect(100, 100, image);
+        if (!results.empty()) {
+            // Very surprised
+        }
     }
 
    private:
