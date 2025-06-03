@@ -10,39 +10,14 @@
 #include "platformplugin.h"
 #include "graphicsplugin.h"
 #include "openxr_program.h"
+#include "networktables_interop.h"
 #include <common/xr_linear.h>
 #include <array>
 #include <cmath>
 #include <set>
 
-#include <networktables/NetworkTableInstance.h>
-#include <networktables/DoubleTopic.h>
-#include <networktables/IntegerTopic.h>
-#include <networktables/FloatArrayTopic.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <unistd.h>
-
 #include <camera/NdkCameraManager.h>
 #include <frc/apriltag/AprilTagDetector.h>
-
-// It's good practice to define this before including GLM headers
-// if you want GLM to use a right-handed system by default and
-// potentially match depth conventions (though for quaternions to Euler,
-// depth convention is less directly relevant than handedness).
-// For Android/OpenXR, a right-handed system is typical.
-#define GLM_FORCE_RIGHT_HANDED
-// #define GLM_FORCE_DEPTH_ZERO_TO_ONE // If your graphics API uses 0-1 depth
-
-// Must define in order to use glm::eulerAngles
-#define GLM_ENABLE_EXPERIMENTAL
-
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/euler_angles.hpp> // For glm::eulerAngles
-#include <glm/gtx/string_cast.hpp> // For easily printing GLM types (optional)
 
 #include "QuestNavConstants.h"
 
@@ -119,79 +94,6 @@ inline XrReferenceSpaceCreateInfo GetXrReferenceSpaceCreateInfo(const std::strin
     return referenceSpaceCreateInfo;
 }
 
-void TryConnection() {
-    return;
-    const char* hostname = "192.168.0.242";
-    const char* port = "5810";
-
-    struct addrinfo hints{}, *res;
-    hints.ai_family = AF_INET;      // IPv4
-    hints.ai_socktype = SOCK_STREAM; // TCP
-
-    int status = getaddrinfo(hostname, port, &hints, &res);
-    if (status != 0) {
-        Log::Write(Log::Level::Error, Fmt("NTInstance: getaddrinfo error: %s", gai_strerror(status)));
-        return;
-    }
-
-    int sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sockfd == -1) {
-        Log::Write(Log::Level::Error, "NTInstance: Socket creation failed!");
-        freeaddrinfo(res);
-        return;
-    }
-
-    if (connect(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
-        Log::Write(Log::Level::Error, "NTInstance: Connection failed!");
-        close(sockfd);
-        freeaddrinfo(res);
-        return;
-    }
-
-    Log::Write(Log::Level::Info, Fmt("NTInstance: Connected successfully to %s on port %d", hostname, port));
-    close(sockfd);
-    freeaddrinfo(res);
-}
-
-// Helper function to convert XrQuaternionf to glm::quat
-inline glm::quat xrToGlmQuat(const XrQuaternionf &xrQuat) {
-    return glm::quat(xrQuat.w, xrQuat.x, xrQuat.y,
-                     xrQuat.z); // GLM constructor order: w, x, y, z
-}
-
-// Helper function to convert glm::vec3 (Euler angles) to a more readable format or your own struct
-struct EulerAngles {
-    float roll;  // Rotation around Z-axis (or forward/backward axis)
-    float pitch; // Rotation around X-axis (or right/left axis)
-    float yaw;   // Rotation around Y-axis (or up/down axis)
-
-    // Optional: Constructor for convenience
-    EulerAngles(float y, float p, float r) : roll(r), pitch(p), yaw(y) {}
-};
-
-EulerAngles convertXrQuaternionToEulerAngles(const XrQuaternionf &xrOrientation) {
-    // 1. Convert XrQuaternionf to glm::quat
-    glm::quat glmOrientation = xrToGlmQuat(xrOrientation);
-
-    // 2. Extract Euler angles from the glm::quat
-    // glm::eulerAngles returns a vec3 with (yaw, pitch, roll) in radians by default
-    // The order of rotations to achieve the orientation is Y (yaw), then X (pitch), then Z (roll)
-    glm::vec3 eulerRadians = glm::eulerAngles(glmOrientation);
-
-    // 3. Convert radians to degrees if needed (optional)
-    // float yawDegrees = glm::degrees(eulerRadians.y); // Yaw is often around Y
-    // float pitchDegrees = glm::degrees(eulerRadians.x); // Pitch is often around X
-    // float rollDegrees = glm::degrees(eulerRadians.z);  // Roll is often around Z
-
-    // 4. Store or return them. Note the order from glm::eulerAngles:
-    // eulerRadians.x is pitch
-    // eulerRadians.y is yaw
-    // eulerRadians.z is roll
-    // (This might seem counter-intuitive, but it corresponds to the YXZ rotation order)
-
-    return EulerAngles(eulerRadians.y, eulerRadians.x, eulerRadians.z); // Yaw, Pitch, Roll
-}
-
 struct OpenXrProgram : IOpenXrProgram {
     OpenXrProgram(const std::shared_ptr<Options>& options, const std::shared_ptr<IPlatformPlugin>& platformPlugin,
                   const std::shared_ptr<IGraphicsPlugin>& graphicsPlugin)
@@ -201,27 +103,7 @@ struct OpenXrProgram : IOpenXrProgram {
           m_acceptableBlendModes{XR_ENVIRONMENT_BLEND_MODE_OPAQUE, XR_ENVIRONMENT_BLEND_MODE_ADDITIVE,
                                  XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {
 
-        TryConnection();
-        
-        Log::Write(Log::Level::Warning, "NTInstance: Initializing network table instance");
-        
-        // Get the NetworkTables instance
-        networkTableInstance = nt::NetworkTableInstance::GetDefault();
-        networkTableInstance.AddLogger(7, UINT_MAX, [](auto& event) {
-            if (auto msg = event.GetLogMessage()) {
-                Log::Write(Log::Level::Warning, Fmt("NTInstance: %d: %s", msg->level, msg->message.c_str()));
-            }
-        });
-        networkTableInstance.SetServer("192.168.0.242");
-        networkTableInstance.StartClient4("Quest3S");
-
-        // Create the per-frame publishers
-        frameCountPublisher = networkTableInstance.GetIntegerTopic(QuestNavConstants::Topics::FRAME_COUNT).Publish();
-        timestampPublisher = networkTableInstance.GetDoubleTopic(QuestNavConstants::Topics::TIMESTAMP).Publish();
-        positionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::POSITION).Publish();
-        quaternionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::QUATERNION).Publish();
-        eulerAnglesPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::EULER_ANGLES).Publish();
-
+        m_publisher = NTInterop::StartNetworkTablesClient("192.168.0.242");
         // Try AprilTag detection
         DetectAprilTag();
     }
@@ -1046,20 +928,11 @@ struct OpenXrProgram : IOpenXrProgram {
 
         static uint64_t framecount = 0;
         framecount++;
-        if (networkTableInstance.IsConnected()) {
-            frameCountPublisher.Set(framecount);
-            timestampPublisher.Set(double(predictedDisplayTime) / double(1000000000LL));
-            positionPublisher.Set({&m_views[0].pose.position.x, 3}); //std::span<const float>
-            quaternionPublisher.Set({&m_views[0].pose.orientation.x, 4});
-            auto eulerAngles = convertXrQuaternionToEulerAngles(m_views[0].pose.orientation);
-            eulerAnglesPublisher.Set({&eulerAngles.roll, 3});
-        }
-        
-        static uint32_t counter = 0;
-        if (++counter >= 5*72) {
-            counter = 0;
-            TryConnection();
-        }
+        NTInterop::PoseData poseData = {
+                framecount, double(predictedDisplayTime) / double(1000000000LL), m_views[0].pose
+        };
+        m_publisher->PublishPose(poseData);
+        DetectAprilTag();
         
         // For each locatable space that we want to visualize, render a 25cm cube.
         std::vector<Cube> cubes;
@@ -1164,6 +1037,8 @@ struct OpenXrProgram : IOpenXrProgram {
     int64_t m_colorSwapchainFormat{-1};
 
     std::vector<XrSpace> m_visualizedSpaces;
+    
+    std::unique_ptr<NTInterop::Publisher> m_publisher;
 
     // Application's current lifecycle state according to the runtime
     XrSessionState m_sessionState{XR_SESSION_STATE_UNKNOWN};
@@ -1173,15 +1048,6 @@ struct OpenXrProgram : IOpenXrProgram {
     InputState m_input;
 
     const std::set<XrEnvironmentBlendMode> m_acceptableBlendModes;
-
-    // Network table items
-    nt::NetworkTableInstance networkTableInstance;
-    nt::IntegerPublisher frameCountPublisher;
-    nt::DoublePublisher timestampPublisher;
-    nt::FloatArrayPublisher positionPublisher;
-    nt::FloatArrayPublisher quaternionPublisher;
-    nt::FloatArrayPublisher eulerAnglesPublisher;
-
 };
 }  // namespace
 

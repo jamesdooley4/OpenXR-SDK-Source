@@ -23,6 +23,7 @@ set(LOCAL_HEADERS
     graphicsapi.h
     graphicsplugin.h
     logger.h
+    networktables_interop.h
     openxr_program.h
     options.h
     pch.h
@@ -39,7 +40,8 @@ set(LOCAL_SOURCE
     graphicsplugin_vulkan.cpp
     graphicsplugin_metal.cpp
     logger.cpp
-    main.cpp
+    main.cpp 
+    networktables_interop.cpp
     openxr_program.cpp
     pch.cpp
     platformplugin_android.cpp
