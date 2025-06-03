@@ -16,6 +16,7 @@
 #
 
 set(LOCAL_HEADERS
+    apriltag_detector.h
     check.h
     common.h
     d3d_common.h
@@ -31,6 +32,7 @@ set(LOCAL_HEADERS
     platformplugin.h
 )
 set(LOCAL_SOURCE
+    apriltag_detector.cpp
     d3d_common.cpp
     graphicsplugin_d3d11.cpp
     graphicsplugin_d3d12.cpp
@@ -59,8 +61,12 @@ if(ANDROID)
         ${VULKAN_SHADERS}
         $<TARGET_OBJECTS:android_native_app_glue>
     )
+    find_library(
+            camera-lib    # Sets the name of the variable to store the library path
+            camera2ndk    # The name of the NDK library to find
+    )
     target_link_libraries(
-        hello_xr PRIVATE ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY}
+        hello_xr PRIVATE ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY} ${camera-lib}
     )
 
     # Only for Android because it lacks a command line
