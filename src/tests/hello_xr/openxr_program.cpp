@@ -103,7 +103,7 @@ struct OpenXrProgram : IOpenXrProgram {
           m_acceptableBlendModes{XR_ENVIRONMENT_BLEND_MODE_OPAQUE, XR_ENVIRONMENT_BLEND_MODE_ADDITIVE,
                                  XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {
 
-        m_publisher = NTInterop::StartNetworkTablesClient("192.168.0.242");
+        m_publisher = NTInterop::StartNetworkTablesClient("10.24.12.21");
         // Try AprilTag detection
         DetectAprilTag();
     }
