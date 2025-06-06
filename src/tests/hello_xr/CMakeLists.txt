@@ -65,8 +65,12 @@ if(ANDROID)
             camera-lib    # Sets the name of the variable to store the library path
             camera2ndk    # The name of the NDK library to find
     )
+    find_library(
+            media-lib
+            mediandk
+    )
     target_link_libraries(
-        hello_xr PRIVATE ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY} ${camera-lib}
+        hello_xr PRIVATE ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY} ${camera-lib} ${media-lib}
     )
 
     # Only for Android because it lacks a command line

@@ -17,7 +17,7 @@
 #include <set>
 
 #include <camera/NdkCameraManager.h>
-#include <frc/apriltag/AprilTagDetector.h>
+#include "apriltag_detector.h"
 
 #include "QuestNavConstants.h"
 
@@ -1013,12 +1013,7 @@ struct OpenXrProgram : IOpenXrProgram {
     }
     
     void DetectAprilTag() {
-        frc::AprilTagDetector detector;
-        uint8_t image[100*100] = {0};
-        auto results = detector.Detect(100, 100, image);
-        if (!results.empty()) {
-            // Very surprised
-        }
+        AprilTagDetector detector;
     }
 
    private:
