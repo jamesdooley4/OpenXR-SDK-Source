@@ -5,10 +5,21 @@
 #include <stdlib.h>
 #include <media/NdkImage.h>
 #include <camera/NdkCameraCaptureSession.h>
+#include <memory>
 #include <vector>
+#include <utility>
 #include "logger.h"
 #include "common.h"
 #include <frc/apriltag/AprilTagDetector.h>
+
+using UniqueCameraIdListPtr = std::unique_ptr<ACameraIdList, decltype(&ACameraManager_deleteCameraIdList)>;
+using UniqueCameraDevicePtr = std::unique_ptr<ACameraDevice, decltype(&ACameraDevice_close)>;
+using UniqueImageReaderPtr = std::unique_ptr<AImageReader, decltype(&AImageReader_delete)>;
+using UniqueCameraOutputTargetPtr = std::unique_ptr<ACameraOutputTarget, decltype(&ACameraOutputTarget_free)>;
+using UniqueCaptureSessionOutputPtr = std::unique_ptr<ACaptureSessionOutput, decltype(&ACaptureSessionOutput_free)>;
+using UniqueCaptureSessionOutputContainer = std::unique_ptr<ACaptureSessionOutputContainer, decltype(&ACaptureSessionOutputContainer_free)>;
+using UniqueCameraCaptureSession = std::unique_ptr<ACameraCaptureSession, decltype(&ACameraCaptureSession_close)>;
+using UniqueCaptureRequest = std::unique_ptr<ACaptureRequest, decltype(&ACaptureRequest_free)>;
 
 // Define a callback for camera device state changes
 void onDisconnected(void* context, ACameraDevice* device) {
@@ -154,61 +165,138 @@ AprilTagDetector::AprilTagDetector() {
     ACameraManager *cameraManager = ACameraManager_create();
 
     // Get list of available camera IDs
-    ACameraIdList *idList = nullptr;
-    ACameraManager_getCameraIdList(cameraManager, &idList);
+    UniqueCameraIdListPtr cameraIdList(nullptr , ACameraManager_deleteCameraIdList);
+    {
+        ACameraIdList *idList = nullptr;
+        camera_status_t result = ACameraManager_getCameraIdList(cameraManager, &idList);
+        cameraIdList.reset(idList);
 
-    if (idList->numCameras < 1) {
-        // Handle the error: No cameras available.
+        if (cameraIdList->numCameras < 2) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACameraManager_getCameraIdList returned fewer than two cameras, with result %d",
+                           result));
+            return;
+        }
+    }
+    
+    Log::Write(Log::Level::Info, Fmt("ACameraManager_getCameraIdList returned %d cameras", cameraIdList->numCameras));
+    for (int i = 0; i < cameraIdList->numCameras; i++) {
+        Log::Write(Log::Level::Info, Fmt("Camera %d: %s", i, cameraIdList->cameraIds[i]));
     }
 
-    // For demonstration, use the first camera
-    const char *cameraId = idList->cameraIds[0];
+    // For demonstration, use the second camera
+    const char *cameraId = cameraIdList->cameraIds[1];
 
     ACameraDevice_stateCallbacks deviceCallbacks = {
             .onDisconnected = onDisconnected,
             .onError = onCameraDeviceError
     };
 
-    ACameraDevice* cameraDevice = nullptr;
-    if (ACameraManager_openCamera(cameraManager, cameraId, &deviceCallbacks, &cameraDevice) != ACAMERA_OK) {
-        // Handle error in opening the camera.
+    // Need to have both horizonos.permission.HEADSET_CAMERA and android.permission.CAMERA
+    UniqueCameraDevicePtr cameraDevicePtr(nullptr, ACameraDevice_close);
+    {
+        ACameraDevice* cameraDevice = nullptr;
+        camera_status_t result = ACameraManager_openCamera(cameraManager, cameraId, &deviceCallbacks, &cameraDevice);
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACameraManager_openCamera failed to open camera %s, with result %d",
+                           cameraId,
+                           result));
+            return;
+        }
+        cameraDevicePtr.reset(cameraDevice);
     }
     
-    // When done, free the camera list later:
-    ACameraManager_deleteCameraIdList(idList);
+    UniqueImageReaderPtr imageReaderPtr(nullptr, AImageReader_delete);
+    {
+        // Set the desired image dimensions and format
+        int width = 1920;
+        int height = 1080;
+        int format = AIMAGE_FORMAT_YUV_420_888;  // Change as needed for RAW data if available.
+        int maxImages = 4;  // Number of images to be queued
 
-    // Set the desired image dimensions and format
-    int width = 1920;
-    int height = 1080;
-    int format = AIMAGE_FORMAT_YUV_420_888;  // Change as needed for RAW data if available.
-    int maxImages = 4;  // Number of images to be queued
-
-    AImageReader* imageReader = nullptr;
-    if (AImageReader_new(width, height, format, maxImages, &imageReader) != AMEDIA_OK) {
-        // Handle error creating the image reader.
+        AImageReader* imageReader = nullptr;
+        media_status_t result = AImageReader_new(width, height, format, maxImages, &imageReader);
+        if (result != AMEDIA_OK) {
+            // Handle error creating the image reader.
+            Log::Write(Log::Level::Error,
+                       Fmt("AImageReader_new failed to create image reader, with result %d", result));
+            return;
+        }
+        imageReaderPtr.reset(imageReader);
     }
 
-// Obtain the native window from the image reader to use as an output target
+    // Obtain the native window from the image reader to use as an output target
+    // This window is managed by the image reader and will be deleted when the image reader is destroyed
     ANativeWindow* window = nullptr;
-    AImageReader_getWindow(imageReader, &window);
+    {
+        media_status_t result = AImageReader_getWindow(imageReaderPtr.get(), &window);
+        if (result != AMEDIA_OK) {
+            // Handle error getting the window.
+            Log::Write(Log::Level::Error,
+                       Fmt("AImageReader_getWindow failed to get window, with result %d", result));
+            return;
+        }
+    }
 
     AImageReader_ImageListener imageListener = { .context = nullptr, .onImageAvailable = onImageAvailable };
-    AImageReader_setImageListener(imageReader, &imageListener);
+    {
+        media_status_t result = AImageReader_setImageListener(imageReaderPtr.get(), &imageListener);
+        if (result != AMEDIA_OK) {
+            // Handle error setting the image listener.
+            Log::Write(Log::Level::Error,
+                       Fmt("AImageReader_setImageListener failed to set image listener, with result %d", result));
+            return;
+        }
+    }
 
     // Build the list of output surfaces
-    ACameraOutputTarget* outputTarget = nullptr;
-    ACameraOutputTarget_create(window, &outputTarget);
-
-    // 'window' is your ANativeWindow* obtained from AImageReader_getWindow or another source.
-    ACaptureSessionOutput* sessionOutput = nullptr;
-    camera_status_t status = ACaptureSessionOutput_create(window, &sessionOutput);
-    if (status != ACAMERA_OK) {
-        // Handle the error appropriately (e.g., logging and cleanup)
+    UniqueCameraOutputTargetPtr outputTargetPtr(nullptr, ACameraOutputTarget_free);
+    {
+        ACameraOutputTarget *outputTarget = nullptr;
+        camera_status_t result = ACameraOutputTarget_create(window, &outputTarget);
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACameraOutputTarget_create failed to create output target, with result %d", result));
+            return;
+        }
+        outputTargetPtr.reset(outputTarget);
     }
+
+    UniqueCaptureSessionOutputPtr captureSessionOutputPtr(nullptr, ACaptureSessionOutput_free);
+    {
+        ACaptureSessionOutput *sessionOutput = nullptr;
+        // 'window' is your ANativeWindow* obtained from AImageReader_getWindow or another source.
+        camera_status_t status = ACaptureSessionOutput_create(window, &sessionOutput);
+        if (status != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACaptureSessionOutput_create failed to create session output, with result %d", status));
+            return;
+        }
+        captureSessionOutputPtr.reset(sessionOutput);
+    }
+    
     // Set up the capture session output configuration (typically one or more targets)
-    ACaptureSessionOutputContainer* outputs = nullptr;
-    ACaptureSessionOutputContainer_create(&outputs);
-    ACaptureSessionOutputContainer_add(outputs, sessionOutput);
+    UniqueCaptureSessionOutputContainer outputContainerPtr(nullptr, ACaptureSessionOutputContainer_free);
+    {
+        ACaptureSessionOutputContainer *outputs = nullptr;
+        camera_status_t result = ACaptureSessionOutputContainer_create(&outputs);
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACaptureSessionOutputContainer_create failed to create output container, with result %d", result));
+            return;
+        }
+        outputContainerPtr.reset(outputs);
+    }
+
+    {
+        camera_status_t result = ACaptureSessionOutputContainer_add(outputContainerPtr.get(), captureSessionOutputPtr.get());
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACaptureSessionOutputContainer_add failed to add output to container, with result %d", result));
+            return;
+        }
+    }
 
     ACameraCaptureSession_stateCallbacks sessionCallbacks = {
             .onClosed = nullptr,
@@ -216,9 +304,17 @@ AprilTagDetector::AprilTagDetector() {
             .onActive = onCaptureSessionActive
     };
 
-    ACameraCaptureSession* captureSession = nullptr;
-    if (ACameraDevice_createCaptureSession(cameraDevice, outputs, &sessionCallbacks, &captureSession) != ACAMERA_OK) {
-        // Handle error in creating the session.
+    UniqueCameraCaptureSession cameraCaptureSessionPtr(nullptr, ACameraCaptureSession_close);
+    {
+        ACameraCaptureSession* captureSession = nullptr;
+        camera_status_t result = ACameraDevice_createCaptureSession(cameraDevicePtr.get(), outputContainerPtr.get(),
+                                               &sessionCallbacks, &captureSession);
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACameraDevice_createCaptureSession failed to create capture session, with result %d", result));
+            return;
+        }
+        cameraCaptureSessionPtr.reset(captureSession);
     }
 
 // Now create a capture request for repeating capture (preview)
@@ -229,20 +325,45 @@ AprilTagDetector::AprilTagDetector() {
             .onCaptureSequenceAborted = onCaptureSequenceAborted,
             .onCaptureBufferLost = onCaptureBufferLost
     };
-    
-    ACaptureRequest* captureRequest = nullptr;
-    ACameraDevice_createCaptureRequest(cameraDevice, TEMPLATE_PREVIEW, &captureRequest);
-    ACaptureRequest_addTarget(captureRequest, outputTarget);
+
+    UniqueCaptureRequest captureRequestPtr(nullptr, ACaptureRequest_free);
+    {
+        // TODO: Update TEMPLATE_PREVIEW to the appropriate request template and set camera exposure parameters, etc.
+        ACaptureRequest* captureRequest = nullptr;
+        camera_status_t result = ACameraDevice_createCaptureRequest(cameraDevicePtr.get(), TEMPLATE_PREVIEW,
+                                                                    &captureRequest);
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACameraDevice_createCaptureRequest failed to create capture request, with result %d", result));
+            return;
+        }
+        captureRequestPtr.reset(captureRequest);
+    }
+
+    {
+        camera_status_t result = ACaptureRequest_addTarget(captureRequestPtr.get(), outputTargetPtr.get());
+        if (result != ACAMERA_OK) {
+            Log::Write(Log::Level::Error,
+                       Fmt("ACaptureRequest_addTarget failed to add output target to capture request, with result %d", result));
+            return;
+        }
+    }
 
     // Start the repeating request
-    int sequenceId = 0; // To store the ID of this repeating request sequence
-    camera_status_t cameraStatus = ACameraCaptureSession_setRepeatingRequest(captureSession, &captureCallbacks, 1, &captureRequest, &sequenceId);
-    if (status == ACAMERA_OK) {
-        Log::Write(Log::Level::Info,
-                   Fmt("Set repeating request successfully. Sequence ID: %d", sequenceId));
-    } else {
-        Log::Write(Log::Level::Error,
-           Fmt("Failed to set repeating request. Status: %d", status));
+    {
+        int sequenceId = 0; // To store the ID of this repeating request sequence
+        ACaptureRequest* captureRequest = captureRequestPtr.get();
+        camera_status_t result = ACameraCaptureSession_setRepeatingRequest(cameraCaptureSessionPtr.get(),
+                                                                                 &captureCallbacks,
+                                                                                 1, &captureRequest,
+                                                                                 &sequenceId);
+        if (result == ACAMERA_OK) {
+            Log::Write(Log::Level::Info,
+                       Fmt("Set repeating request successfully. Sequence ID: %d", sequenceId));
+        } else {
+            Log::Write(Log::Level::Error,
+                       Fmt("Failed to set repeating request. Status: %d", result));
+        }
     }
 }
 
