@@ -2,6 +2,7 @@
 #include <networktables/DoubleTopic.h>
 #include <networktables/IntegerTopic.h>
 #include <networktables/FloatArrayTopic.h>
+#include <networktables/StructTopic.h>
 #include <frc/geometry/CoordinateSystem.h>
 #include <frc/geometry/Pose3d.h>
 #include <units/length.h>
@@ -35,9 +36,12 @@ namespace NTInterop {
             positionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::POSITION).Publish();
             quaternionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::QUATERNION).Publish();
             eulerAnglesPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::EULER_ANGLES).Publish();
+            pose2dPublisher = networkTableInstance.GetStructTopic<frc::Pose2d>(QuestNavConstants::Topics::POSE2D).Publish();
         }
 
-        ~NTPublisher() override {};
+        ~NTPublisher() override {
+            networkTableInstance.StopClient();
+        };
 
         void PublishPose(PoseData const &poseData) override {
             if (!networkTableInstance.IsConnected()) {
@@ -76,6 +80,9 @@ namespace NTInterop {
                     static_cast<float>(nwuPose.Y().value()),
                     static_cast<float>(nwuPose.Z().value())};
             positionPublisher.Set(positionData_wp);
+            
+            // Pose2d (WPILib)
+            pose2dPublisher.Set(nwuPose.ToPose2d());
 
             // Quaternion (WPILib)
             // QuestNav uses xyzw: https://github.com/QuestNav/QuestNav/blob/main/unity/Assets/QuestNav/Utils/QuaternionExtensions.cs
@@ -104,6 +111,7 @@ namespace NTInterop {
         nt::FloatArrayPublisher positionPublisher;
         nt::FloatArrayPublisher quaternionPublisher;
         nt::FloatArrayPublisher eulerAnglesPublisher;
+        nt::StructPublisher<frc::Pose2d> pose2dPublisher;
     };
 }
 
