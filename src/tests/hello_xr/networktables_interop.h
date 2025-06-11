@@ -2,7 +2,6 @@
 #define HELLO_XR_NETWORKTABLES_INTEROP_H
 
 #include <string>
-#include <span>
 #include <memory>
 
 namespace NTInterop {
@@ -22,6 +21,6 @@ namespace NTInterop {
 
     std::unique_ptr<NTInterop::Publisher> StartNetworkTablesClient(std::string const &serverAddress);
     std::unique_ptr<NTInterop::Publisher> StartNetworkTablesClient(uint16_t teamNumber);
-};
+}
 
 #endif //HELLO_XR_NETWORKTABLES_INTEROP_H

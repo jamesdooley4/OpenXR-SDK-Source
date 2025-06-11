@@ -932,7 +932,6 @@ struct OpenXrProgram : IOpenXrProgram {
                 framecount, double(predictedDisplayTime) / double(1000000000LL), m_views[0].pose
         };
         m_publisher->PublishPose(poseData);
-        //DetectAprilTag();
         
         // For each locatable space that we want to visualize, render a 25cm cube.
         std::vector<Cube> cubes;
@@ -1013,7 +1012,8 @@ struct OpenXrProgram : IOpenXrProgram {
     }
     
     void DetectAprilTag() {
-        AprilTagDetector detector;
+        std::unique_ptr<rt::AprilTagDetector> detector = rt::GetAprilTagDetector();
+        detector->Initialize();
     }
 
    private:
