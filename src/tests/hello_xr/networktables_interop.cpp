@@ -6,6 +6,7 @@
 #include <frc/geometry/CoordinateSystem.h>
 #include <frc/geometry/Pose3d.h>
 #include <units/length.h>
+#include <units/angle.h>
 
 #include <string>
 
@@ -37,6 +38,7 @@ namespace NTInterop {
             quaternionPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::QUATERNION).Publish();
             eulerAnglesPublisher = networkTableInstance.GetFloatArrayTopic(QuestNavConstants::Topics::EULER_ANGLES).Publish();
             pose2dPublisher = networkTableInstance.GetStructTopic<frc::Pose2d>(QuestNavConstants::Topics::POSE2D).Publish();
+            pose3dPublisher = networkTableInstance.GetStructTopic<frc::Pose3d>(QuestNavConstants::Topics::POSE3D).Publish();
         }
 
         ~NTPublisher() override {
@@ -81,8 +83,15 @@ namespace NTInterop {
                     static_cast<float>(nwuPose.Z().value())};
             positionPublisher.Set(positionData_wp);
             
+            constexpr frc::Rotation3d rotation3D(-90_deg, 90_deg, 0_deg);
+            constexpr frc::Transform3d transform3D(frc::Translation3d(), rotation3D);
+            nwuPose = nwuPose.TransformBy(transform3D);
+            
             // Pose2d (WPILib)
             pose2dPublisher.Set(nwuPose.ToPose2d());
+
+            // Pose3d (WPILib)
+            pose3dPublisher.Set(nwuPose);
 
             // Quaternion (WPILib)
             // QuestNav uses xyzw: https://github.com/QuestNav/QuestNav/blob/main/unity/Assets/QuestNav/Utils/QuaternionExtensions.cs
@@ -112,6 +121,7 @@ namespace NTInterop {
         nt::FloatArrayPublisher quaternionPublisher;
         nt::FloatArrayPublisher eulerAnglesPublisher;
         nt::StructPublisher<frc::Pose2d> pose2dPublisher;
+        nt::StructPublisher<frc::Pose3d> pose3dPublisher;
     };
 }
 

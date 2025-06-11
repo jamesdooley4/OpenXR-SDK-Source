@@ -45,6 +45,11 @@ namespace QuestNavConstants {
         constexpr std::string_view POSE2D = "/questnav/pose2d";
 
         /// <summary>
+        /// Position topic
+        /// </summary>
+        constexpr std::string_view POSE3D = "/questnav/pose3d";
+
+        /// <summary>
         /// Quaternion rotation topic
         /// </summary>
         constexpr std::string_view QUATERNION = "/questnav/quaternion";
