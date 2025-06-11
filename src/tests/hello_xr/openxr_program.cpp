@@ -104,8 +104,8 @@ struct OpenXrProgram : IOpenXrProgram {
                                  XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND} {
 
         m_publisher = NTInterop::StartNetworkTablesClient("10.24.12.2");
-        // Try AprilTag detection
-        DetectAprilTag();
+        m_detector = rt::GetAprilTagDetector();
+        m_detector->Initialize();
     }
 
     ~OpenXrProgram() override {
@@ -1010,11 +1010,6 @@ struct OpenXrProgram : IOpenXrProgram {
         layer.views = projectionLayerViews.data();
         return true;
     }
-    
-    void DetectAprilTag() {
-        std::unique_ptr<rt::AprilTagDetector> detector = rt::GetAprilTagDetector();
-        detector->Initialize();
-    }
 
    private:
     const std::shared_ptr<const Options> m_options;
@@ -1034,6 +1029,7 @@ struct OpenXrProgram : IOpenXrProgram {
     std::vector<XrSpace> m_visualizedSpaces;
     
     std::unique_ptr<NTInterop::Publisher> m_publisher;
+    std::unique_ptr<rt::AprilTagDetector> m_detector;
 
     // Application's current lifecycle state according to the runtime
     XrSessionState m_sessionState{XR_SESSION_STATE_UNKNOWN};
