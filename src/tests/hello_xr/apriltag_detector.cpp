@@ -536,6 +536,13 @@ void AprilTagDetectorImp::Initialize() {
                        Fmt(LOG_TAG "Failed to set repeating request, status: %d", status));
         }
     }
+
+    frc::AprilTagDetector::Config aprilTagConfig = m_aprilTagCppDetector.GetConfig();
+    aprilTagConfig.numThreads = 2;
+    m_aprilTagCppDetector.SetConfig(aprilTagConfig);
+    if (!m_aprilTagCppDetector.AddFamily("tag36h11")) {
+        Log::Write(Log::Level::Error, LOG_TAG "Failed to add tag36h11 family");
+    }
     
     Log::Write(Log::Level::Info, LOG_TAG "Initialize end");
 }
