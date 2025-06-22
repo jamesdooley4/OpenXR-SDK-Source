@@ -105,7 +105,6 @@ struct OpenXrProgram : IOpenXrProgram {
 
         m_publisher = NTInterop::StartNetworkTablesClient("10.24.12.2");
         m_detector = rt::GetAprilTagDetector();
-        m_detector->Initialize();
     }
 
     ~OpenXrProgram() override {
@@ -758,6 +757,7 @@ struct OpenXrProgram : IOpenXrProgram {
                 sessionBeginInfo.primaryViewConfigurationType = m_options->Parsed.ViewConfigType;
                 CHECK_XRCMD(xrBeginSession(m_session, &sessionBeginInfo));
                 m_sessionRunning = true;
+                m_detector->Initialize();
                 break;
             }
             case XR_SESSION_STATE_STOPPING: {
