@@ -12,6 +12,7 @@
 #include "common.h"
 #include <frc/apriltag/AprilTagDetector.h>
 #include <cassert> // For assert
+#include <fstream>
 
 using UniqueCameraManagerPtr = std::unique_ptr<ACameraManager, decltype(&ACameraManager_delete)>;
 using UniqueCameraIdListPtr = std::unique_ptr<ACameraIdList, decltype(&ACameraManager_deleteCameraIdList)>;
@@ -50,62 +51,11 @@ void onCameraDeviceError(void* context, ACameraDevice* device, int error) {
     }
 }
 
-// onImageAvailable now needs to be a static member or a free function.
-// If it needs to access AprilTagDetectorImp members, it needs the context.
-void onImageAvailable(void* context, AImageReader* reader) {
-    Log::Write(Log::Level::Verbose,
-               Fmt(LOG_TAG "Image available. Context: %p, Reader: %p", context, reader));
-
-    AprilTagDetectorImp* detector = static_cast<AprilTagDetectorImp*>(context);
-    if (!detector) {
-        Log::Write(Log::Level::Error, LOG_TAG "onImageAvailable: context is null!");
-        AImage* image = nullptr;
-        // Still try to acquire and delete to clear the queue if reader is valid
-        if (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK) {
-            if (image) AImage_delete(image);
-        }
-        return;
-    }
-
-    AImage* image = nullptr;
-    media_status_t status = AImageReader_acquireNextImage(reader, &image);
-    if (status == AMEDIA_OK && image != nullptr) {
-        Log::Write(Log::Level::Info, LOG_TAG "Image acquired successfully!");
-        // Process the image. You might convert or directly access the raw buffers.
-        // detector->ProcessImage(image); // Example: call a member function
-
-        // TODO: Implement image processing using frc::AprilTagDetector
-        // int32_t width, height, format;
-        // AImage_getWidth(image, &width);
-        // AImage_getHeight(image, &height);
-        // AImage_getFormat(image, &format);
-        // Log::Write(Log::Level::Verbose, Fmt(LOG_TAG "Image details: %dx%d, format %d", width, height, format));
-
-        // For YUV_420_888, you'd get plane data:
-        // AImageCropRect cropRect;
-        // AImage_getCropRect(image, &cropRect);
-        // int32_t yStride, uStride, vStride;
-        // uint8_t *yPixel, *uPixel, *vPixel;
-        // int32_t yLen, uLen, vLen;
-        // AImage_getPlaneRowStride(image, 0, &yStride);
-        // AImage_getPlaneRowStride(image, 1, &uStride);
-        // AImage_getPlaneRowStride(image, 2, &vStride);
-        // AImage_getPlaneData(image, 0, &yPixel, &yLen);
-        // AImage_getPlaneData(image, 1, &uPixel, &uLen);
-        // AImage_getPlaneData(image, 2, &vPixel, &vLen);
-        // detector->m_aprilTagCppDetector.Detect(width, height, yPixel /* or converted grayscale */);
-
-        AImage_delete(image);
-    } else {
-        Log::Write(Log::Level::Error, Fmt(LOG_TAG "Failed to acquire image, status: %d", status));
-    }
-}
-
 // --- Capture Callbacks (static or free functions) ---
 
 void captureStarted(void* context, ACameraCaptureSession* session,
         const ACaptureRequest* request, int64_t timestamp) {
-    Log::Write(Log::Level::Info,
+    Log::Write(Log::Level::Verbose,
                Fmt(LOG_TAG "Capture started. Context: %p, Session: %p, Request: %p, Timestamp: %lld", context, session, request, timestamp));
 }
 
@@ -164,13 +114,46 @@ void captureBufferLost(void* context, ACameraCaptureSession* session,
                    context, session, request, frameNumber, window));
 }
 
-void DetectAprilTag() {
-    frc::AprilTagDetector detector;
-    uint8_t image[100*100] = {0};
-    auto results = detector.Detect(100, 100, image);
-    if (!results.empty()) {
-        // Very surprised
+void saveGrayscaleBMP(const std::string& filename, const uint8_t* data, int width, int height) {
+    const int headersSize = 14 + 40 + 1024; // File header + Info header + color palette
+    const int rowSize = ((width + 3) / 4) * 4; // Each row is padded to a multiple of 4 bytes
+    const int pixelArraySize = rowSize * height;
+    const int fileSize = headersSize + pixelArraySize;
+
+    std::vector<uint8_t> bmp(fileSize, 0);
+
+    // File header (14 bytes)
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    *reinterpret_cast<uint32_t*>(&bmp[2]) = fileSize;
+    *reinterpret_cast<uint32_t*>(&bmp[10]) = headersSize;
+
+    // Info header (40 bytes)
+    *reinterpret_cast<uint32_t*>(&bmp[14]) = 40;
+    *reinterpret_cast<int32_t*>(&bmp[18]) = width;
+    *reinterpret_cast<int32_t*>(&bmp[22]) = -height; // negative for top-down bitmap
+    *reinterpret_cast<uint16_t*>(&bmp[26]) = 1;  // Planes
+    *reinterpret_cast<uint16_t*>(&bmp[28]) = 8;  // Bits per pixel
+    *reinterpret_cast<uint32_t*>(&bmp[34]) = pixelArraySize;
+
+    // Grayscale color palette (1024 bytes)
+    for (int i = 0; i < 256; ++i) {
+        bmp[54 + i * 4 + 0] = i;
+        bmp[54 + i * 4 + 1] = i;
+        bmp[54 + i * 4 + 2] = i;
+        bmp[54 + i * 4 + 3] = 0;
     }
+
+    // Copy pixel data with padding
+    for (int y = 0; y < height; ++y) {
+        int srcRow = y * width;
+        int dstRow = headersSize + y * rowSize;
+        std::copy(&data[srcRow], &data[srcRow + width], &bmp[dstRow]);
+    }
+
+    // Save to file
+    std::ofstream out(filename, std::ios::binary);
+    out.write(reinterpret_cast<char*>(bmp.data()), bmp.size());
 }
 
 namespace rt {
@@ -202,9 +185,6 @@ namespace rt {
         }
 
         virtual void Initialize();
-        // void ProcessImage(AImage* image); // Example if you add image processing method
-
-        // frc::AprilTagDetector m_aprilTagCppDetector; // Your actual detector instance
 
     private:
         // Static session state callbacks that call member implementations
@@ -232,8 +212,23 @@ namespace rt {
                 }
             }
         }
+        static void onImageAvailableCb(void* context, AImageReader* reader) {
+            Log::Write(Log::Level::Verbose, Fmt(LOG_TAG "Static: Image available. Context: %p, Reader: %p", context, reader));
+            AprilTagDetectorImp* detector = static_cast<AprilTagDetectorImp*>(context);
+            if (detector) {
+                detector->onImageAvailable(reader);
+            } else {
+                Log::Write(Log::Level::Error, LOG_TAG "onImageAvailable: context is null!");
+                AImage* image = nullptr;
+                // Still try to acquire and delete to clear the queue if reader is valid
+                if (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK) {
+                    if (image) AImage_delete(image);
+                }
+            }
+        }
 
         void onCaptureSessionConfiguredImpl(ACameraCaptureSession *session);
+        void onImageAvailable(AImageReader* reader);
         
         bool openCamera(const char *cameraId);
         bool createImageReader(int32_t width, int32_t height, int32_t format, int32_t maxImages);
@@ -252,6 +247,7 @@ namespace rt {
 
         UniqueCameraCaptureSession m_cameraCaptureSessionPtr;
         UniqueCaptureRequest m_captureRequestRepeatingPtr; // For the repeating request
+        frc::AprilTagDetector m_aprilTagCppDetector;
     };
 } // namespace rt
 
@@ -289,7 +285,7 @@ bool AprilTagDetectorImp::createImageReader(int32_t width, int32_t height, int32
 
     AImageReader_ImageListener imageListener = {
             .context = this, // Pass this AprilTagDetectorImp instance as context
-            .onImageAvailable = ::onImageAvailable // Use the global/static callback
+            .onImageAvailable = onImageAvailableCb // Use the global/static callback
     };
 
     result = AImageReader_setImageListener(m_imageReaderPtr.get(), &imageListener);
@@ -582,7 +578,92 @@ void AprilTagDetectorImp::onCaptureSessionConfiguredImpl(ACameraCaptureSession *
     //    Log::Write(Log::Level::Info, Fmt(LOG_TAG "Set FPS range to: [%d, %d]", entry.data.i32[0], entry.data.i32[1]));
     // }
     // ACameraMetadata_free(cameraCharacteristics);
-    
+}
+
+void AprilTagDetectorImp::onImageAvailable(AImageReader* reader) {
+    AImage* image = nullptr;
+    media_status_t status = AImageReader_acquireNextImage(reader, &image);
+    if (status == AMEDIA_OK && image != nullptr) {
+        Log::Write(Log::Level::Verbose, LOG_TAG "Image acquired successfully!");
+        
+        int32_t format = 0;
+        AImage_getFormat(image, &format);
+
+        if (format != AIMAGE_FORMAT_YUV_420_888) {
+            Log::Write(Log::Level::Error, Fmt(LOG_TAG "Image format is not YUV_420_888. Actual format: %d", format));
+            return;
+        }
+
+        int32_t width = 0;
+        int32_t height = 0;
+        AImage_getWidth(image, &width);
+        AImage_getHeight(image, &height);
+        if (width <= 0 || height <= 0) {
+            Log::Write(Log::Level::Error, Fmt(LOG_TAG "Invalid image dimensions: %dx%d", width, height));
+            return;
+        }
+//        AImageCropRect cropRect;
+//        AImage_getCropRect(image, &cropRect);
+
+        // Get the Y plane (luminance plane)
+        int32_t yPlaneRowStride = 0;
+        uint8_t* yPlaneData = nullptr;
+        int32_t yPlaneDataLength = 0;
+
+        status = AImage_getPlaneRowStride(image, 0, &yPlaneRowStride);
+        if (status != AMEDIA_OK) {
+            Log::Write(Log::Level::Error, Fmt(LOG_TAG "Failed to get Y plane row stride, status: %d", status));
+            return;
+        }
+
+        status = AImage_getPlaneData(image, 0, &yPlaneData, &yPlaneDataLength);
+        if (status != AMEDIA_OK || yPlaneData == nullptr) {
+            Log::Write(Log::Level::Error, Fmt(LOG_TAG "Failed to get Y plane data, status: %d", status));
+            return;
+        }
+
+        // The Y plane data length should be at least width * height.
+        // It might be larger due to row stride/padding.
+        if (yPlaneDataLength < width * height) {
+            Log::Write(Log::Level::Error, Fmt(LOG_TAG "Y plane data length (%d) is less than expected (%dx%d = %d)",
+                                              yPlaneDataLength, width, height, width * height));
+            // This could indicate an issue or a misunderstanding of the format/stride.
+            // Depending on requirements, you might still proceed if yPlaneRowStride and outHeight are valid.
+            return;
+        }
+
+        if (yPlaneRowStride == width) {
+            Log::Write(Log::Level::Verbose, Fmt(LOG_TAG "Stride == width!"));
+            auto results = m_aprilTagCppDetector.Detect(width, height, yPlaneData);
+            Log::Write(Log::Level::Verbose, Fmt(LOG_TAG "Results size: %d", results.size()));
+            if (!results.empty()) {
+                for (auto result : results) {
+                    Log::Write(Log::Level::Info, Fmt(LOG_TAG "Result: ID: %d, Center: (%f, %f)", result->GetId(), result->GetCenter().x, result->GetCenter().y));
+                }
+            }
+            
+            static int32_t frameCount = 0;
+            if (++frameCount % 60 == 0) {
+//                std::string hexImage;
+//                hexImage.reserve(10*10*2 + 10);
+//                for (int y = 0; y < height; y+= height / 10) {
+//                    for (int x = 0; x < width; x += width / 10) {
+//                        fmt::format_to(std::back_inserter(hexImage), "{:02x} ", yPlaneData[y * width + x]);
+//                    }
+//                    hexImage += '\n';
+//                }
+//                Log::Write(Log::Level::Info, Fmt(LOG_TAG "Frame %d, Image data:\n%s", frameCount, hexImage.c_str()));
+
+//                saveGrayscaleBMP(Fmt("/sdcard/Documents/frame%d.bmp", frameCount), yPlaneData, width, height);
+            }
+        } else {
+            Log::Write(Log::Level::Info, Fmt(LOG_TAG "Stride != width! Stride: %d, Width: %d", yPlaneRowStride, width));
+        }
+
+        AImage_delete(image);
+    } else {
+        Log::Write(Log::Level::Error, Fmt(LOG_TAG "Failed to acquire image, status: %d", status));
+    }
 }
 
 std::unique_ptr<AprilTagDetector> rt::GetAprilTagDetector() {
